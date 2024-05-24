@@ -5,7 +5,8 @@ using Bogus.Extensions.Brazil;
 using Dapper;
 using Dapper.Contrib.Extensions;
 using Microsoft.Data.Sqlite;
-using SqlSugar;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Utilities;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
@@ -31,72 +32,20 @@ public class CRMTests
 
     #region SQLSugar Tests
 
-    private SqlSugarClient Db;
-    private Name? _namesDataSetSQLSugar;
-    private PhoneNumbers? _phonesDataSetSQLSugar;
-    private Address? _addressesDataSetSQLSugar;
-    private Company? _companiesDataSetSQLSugar;
-    private int _numeroContatosPorCompanhiaSQLSugar;
-
-    // [IterationSetup(Target = nameof(InputDataWithSQLSugar))]
-    public void SetupSQLSugar()
-    {
-        Db = new SqlSugarClient(new ConnectionConfig()
-        {
-            ConnectionString = Configurations.BaseSqlSugar,
-            DbType = DbType.Sqlite,
-            IsAutoCloseConnection = true,
-            InitKeyType = InitKeyType.Attribute
-        });
-        _namesDataSetSQLSugar = new Name("pt_BR");
-        _phonesDataSetSQLSugar = new PhoneNumbers("pt_BR");
-        _addressesDataSetSQLSugar = new Address("pt_BR");
-        _companiesDataSetSQLSugar = new Company("pt_BR");
-        _numeroContatosPorCompanhiaSQLSugar = GetNumeroContatosPorCompanhia();
-    }
-
-    // [Benchmark]
-    public void InputDataWithSQLSugar()
-    {
-        var lstData = new List<Empresa>();
-        for (int j = 0; j < NumberOfRecords; j++)
-        {
-            var empresa = new Empresa()
-            {
-                Nome = _companiesDataSetSQLSugar!.CompanyName(),
-                CNPJ = _companiesDataSetSQLSugar!.Cnpj(includeFormatSymbols: false),
-                Cidade = _addressesDataSetSQLSugar!.City(),
-                Contatos = new List<Contato>()
-            };
-            for (int i = 0; i < _numeroContatosPorCompanhiaSQLSugar; i++)
-            {
-                empresa.Contatos.Add(new Contato()
-                {
-                    Nome = _namesDataSetSQLSugar!.FullName(),
-                    Telefone = _phonesDataSetSQLSugar!.PhoneNumber()
-                });
-            }
-            lstData!.Add(empresa);
-        }
-
-        // Db.Fastest<Empresa>().BulkCopy(lstData);
-        Db.Fastest<Empresa>().PageSize(10_0000).BulkCopy(lstData);
-    }
-
-    [IterationCleanup(Target = nameof(InputDataWithSQLSugar))]
-    public void CleanupSQLSugar()
-    {
-        Db = null;
-    }
-
     #endregion
 
     #region EFcore ext
+    PooledDbContextFactory<CRMContext>? factory;
 
     [IterationSetup(Target = nameof(InputDataWithEntityFrameworkCoreExt))]
     public void SetupEntityFrameworkCoreExt()
     {
         _context = new CRMContext();
+        var options = new DbContextOptionsBuilder<CRMContext>()
+            .UseSqlite(Configurations.BaseEFCore)
+            .Options;
+        factory = new PooledDbContextFactory<CRMContext>(options);
+
         _context.ChangeTracker.AutoDetectChangesEnabled = false;
         _namesDataSetEF = new Name("pt_BR");
         _phonesDataSetEF = new PhoneNumbers("pt_BR");
@@ -109,6 +58,7 @@ public class CRMTests
     public void InputDataWithEntityFrameworkCoreExt()
     {
         var lstData = new List<EFCore.Empresa>();
+
         for (int j = 0; j < NumberOfRecords; j++)
         {
             var empresa = new EFCore.Empresa()
@@ -147,6 +97,10 @@ public class CRMTests
     public void SetupEntityFrameworkCore()
     {
         _context = new CRMContext();
+        var options = new DbContextOptionsBuilder<CRMContext>()
+           .UseSqlite(Configurations.BaseEFCore)
+           .Options;
+        factory = new PooledDbContextFactory<CRMContext>(options);
         _namesDataSetEF = new Name("pt_BR");
         _phonesDataSetEF = new PhoneNumbers("pt_BR");
         _addressesDataSetEF = new Address("pt_BR");
@@ -157,27 +111,28 @@ public class CRMTests
     [Benchmark]
     public void InputDataWithEntityFrameworkCore()
     {
-        for (int j = 0; j < NumberOfRecords; j++)
+        for (int i = 0; i < NumberOfRecords; i++)
         {
-            var empresa = new EFCore.Empresa()
+            using (var context = factory.CreateDbContext())
             {
-                Nome = _companiesDataSetEF!.CompanyName(),
-                CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
-                Cidade = _addressesDataSetEF!.City(),
-                Contatos = new List<EFCore.Contato>()
-            };
-            for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
-            {
-                empresa.Contatos.Add(new EFCore.Contato()
+                var empresa = new EFCore.Empresa()
                 {
-                    Nome = _namesDataSetEF!.FullName(),
-                    Telefone = _phonesDataSetEF!.PhoneNumber()
-                });
+                    Nome = _companiesDataSetEF!.CompanyName(),
+                    CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
+                    Cidade = _addressesDataSetEF!.City(),
+                    Contatos = new List<EFCore.Contato>()
+                };
+                for (int j = 0; j < _numeroContatosPorCompanhiaEF; j++)
+                {
+                    empresa.Contatos.Add(new EFCore.Contato()
+                    {
+                        Nome = _namesDataSetEF!.FullName(),
+                        Telefone = _phonesDataSetEF!.PhoneNumber()
+                    });
+                }
+                context.SaveChanges();
             }
-
-            _context!.Add(empresa);
         }
-        _context!.SaveChanges();
     }
 
     [IterationCleanup(Target = nameof(InputDataWithEntityFrameworkCore))]
