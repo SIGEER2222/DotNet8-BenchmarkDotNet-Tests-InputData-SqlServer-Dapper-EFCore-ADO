@@ -1,6 +1,7 @@
 $env:NumeroContatosPorCompanhia = "1"
-$env:BaseEFCoreConnectionString = "Server=localhost;Database=BaseCRMEF;User Id=sa;Password=SqlServer2019!;TrustServerCertificate=True;"
-$env:BaseDapperConnectionString = "Server=localhost;Database=BaseCRMDapper;User Id=sa;Password=SqlServer2019!;TrustServerCertificate=True;"
-$env:BaseDapperContribConnectionString = "Server=localhost;Database=BaseCRMDapperContrib;User Id=sa;Password=SqlServer2019!;TrustServerCertificate=True;"
-$env:BaseADOConnectionString = "Server=localhost;Database=BaseCRMADO;User Id=sa;Password=SqlServer2019!;TrustServerCertificate=True;"
+$env:BaseSQLSugarConnectionString = "Data Source=D:\试验\Log\BaiAn.db;"
+$env:BaseEFCoreConnectionString = "Data Source=D:\试验\Log\BaiAn.db;"
+$env:BaseDapperConnectionString = "Data Source=D:\试验\Log\BaiAn.db;"
+$env:BaseDapperContribConnectionString = "Data Source=D:\试验\Log\BaiAn.db;"
+$env:BaseADOConnectionString = "Data Source=D:\试验\Log\BaiAn.db;"
 dotnet run --filter * -c Release

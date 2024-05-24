@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace BenchmarkingDapperEFCoreCRM.EFCore;
 
@@ -9,7 +10,7 @@ public class CRMContext : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlServer(Configurations.BaseEFCore);
+        optionsBuilder.UseSqlite(Configurations.BaseEFCore);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

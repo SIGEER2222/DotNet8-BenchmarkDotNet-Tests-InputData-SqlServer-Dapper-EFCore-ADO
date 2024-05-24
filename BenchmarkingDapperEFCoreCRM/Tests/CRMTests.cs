@@ -4,7 +4,8 @@ using Bogus.DataSets;
 using Bogus.Extensions.Brazil;
 using Dapper;
 using Dapper.Contrib.Extensions;
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
+using SqlSugar;
 using Utilities;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
@@ -13,6 +14,9 @@ namespace BenchmarkingDapperEFCoreCRM.Tests;
 [SimpleJob(BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 5)]
 public class CRMTests
 {
+    [Params(1_000)]
+    public int NumberOfRecords { get; set; }
+
     private const int NumeroContatosPorCompanhia = 1;
 
     private int GetNumeroContatosPorCompanhia()
@@ -24,7 +28,111 @@ public class CRMTests
             return result;
         return NumeroContatosPorCompanhia;
     }
-    
+
+    #region SQLSugar Tests
+
+    private SqlSugarClient Db;
+    private Name? _namesDataSetSQLSugar;
+    private PhoneNumbers? _phonesDataSetSQLSugar;
+    private Address? _addressesDataSetSQLSugar;
+    private Company? _companiesDataSetSQLSugar;
+    private int _numeroContatosPorCompanhiaSQLSugar;
+
+    // [IterationSetup(Target = nameof(InputDataWithSQLSugar))]
+    public void SetupSQLSugar()
+    {
+        Db = new SqlSugarClient(new ConnectionConfig()
+        {
+            ConnectionString = Configurations.BaseSqlSugar,
+            DbType = DbType.Sqlite,
+            IsAutoCloseConnection = true,
+            InitKeyType = InitKeyType.Attribute
+        });
+        _namesDataSetSQLSugar = new Name("pt_BR");
+        _phonesDataSetSQLSugar = new PhoneNumbers("pt_BR");
+        _addressesDataSetSQLSugar = new Address("pt_BR");
+        _companiesDataSetSQLSugar = new Company("pt_BR");
+        _numeroContatosPorCompanhiaSQLSugar = GetNumeroContatosPorCompanhia();
+    }
+
+    // [Benchmark]
+    public void InputDataWithSQLSugar()
+    {
+        var lstData = new List<Empresa>();
+        for (int j = 0; j < NumberOfRecords; j++)
+        {
+            var empresa = new Empresa()
+            {
+                Nome = _companiesDataSetSQLSugar!.CompanyName(),
+                CNPJ = _companiesDataSetSQLSugar!.Cnpj(includeFormatSymbols: false),
+                Cidade = _addressesDataSetSQLSugar!.City(),
+                Contatos = new List<Contato>()
+            };
+            for (int i = 0; i < _numeroContatosPorCompanhiaSQLSugar; i++)
+            {
+                empresa.Contatos.Add(new Contato()
+                {
+                    Nome = _namesDataSetSQLSugar!.FullName(),
+                    Telefone = _phonesDataSetSQLSugar!.PhoneNumber()
+                });
+            }
+            lstData!.Add(empresa);
+        }
+
+        // Db.Fastest<Empresa>().BulkCopy(lstData);
+        Db.Fastest<Empresa>().PageSize(10_0000).BulkCopy(lstData);
+    }
+
+    [IterationCleanup(Target = nameof(InputDataWithSQLSugar))]
+    public void CleanupSQLSugar()
+    {
+        Db = null;
+    }
+
+    #endregion
+
+    #region EFcore ext
+
+    [IterationSetup(Target = nameof(InputDataWithEntityFrameworkCoreExt))]
+    public void SetupEntityFrameworkCoreExt()
+    {
+        _context = new CRMContext();
+        _context.ChangeTracker.AutoDetectChangesEnabled = false;
+        _namesDataSetEF = new Name("pt_BR");
+        _phonesDataSetEF = new PhoneNumbers("pt_BR");
+        _addressesDataSetEF = new Address("pt_BR");
+        _companiesDataSetEF = new Company("pt_BR");
+        _numeroContatosPorCompanhiaEF = GetNumeroContatosPorCompanhia();
+    }
+
+    [Benchmark]
+    public void InputDataWithEntityFrameworkCoreExt()
+    {
+        var lstData = new List<EFCore.Empresa>();
+        for (int j = 0; j < NumberOfRecords; j++)
+        {
+            var empresa = new EFCore.Empresa()
+            {
+                Nome = _companiesDataSetEF!.CompanyName(),
+                CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
+                Cidade = _addressesDataSetEF!.City(),
+                Contatos = new List<EFCore.Contato>()
+            };
+            for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
+            {
+                empresa.Contatos.Add(new EFCore.Contato()
+                {
+                    Nome = _namesDataSetEF!.FullName(),
+                    Telefone = _phonesDataSetEF!.PhoneNumber()
+                });
+            }
+            lstData.Add(empresa);
+        }
+        _context.BulkInsert(lstData);
+    }
+
+    #endregion
+
     #region EFCore Tests
 
     private CRMContext? _context;
@@ -33,6 +141,7 @@ public class CRMTests
     private Address? _addressesDataSetEF;
     private Company? _companiesDataSetEF;
     private int _numeroContatosPorCompanhiaEF;
+
 
     [IterationSetup(Target = nameof(InputDataWithEntityFrameworkCore))]
     public void SetupEntityFrameworkCore()
@@ -46,28 +155,29 @@ public class CRMTests
     }
 
     [Benchmark]
-    public EFCore.Empresa InputDataWithEntityFrameworkCore()
+    public void InputDataWithEntityFrameworkCore()
     {
-        var empresa = new EFCore.Empresa()
+        for (int j = 0; j < NumberOfRecords; j++)
         {
-            Nome = _companiesDataSetEF!.CompanyName(),
-            CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
-            Cidade = _addressesDataSetEF!.City(),
-            Contatos = new ()
-        };
-        for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
-        {
-            empresa.Contatos.Add(new ()
+            var empresa = new EFCore.Empresa()
             {
-                Nome = _namesDataSetEF!.FullName(),
-                Telefone = _phonesDataSetEF!.PhoneNumber()
-            });
+                Nome = _companiesDataSetEF!.CompanyName(),
+                CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
+                Cidade = _addressesDataSetEF!.City(),
+                Contatos = new List<EFCore.Contato>()
+            };
+            for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
+            {
+                empresa.Contatos.Add(new EFCore.Contato()
+                {
+                    Nome = _namesDataSetEF!.FullName(),
+                    Telefone = _phonesDataSetEF!.PhoneNumber()
+                });
+            }
+
+            _context!.Add(empresa);
         }
-
-        _context!.Add(empresa);
         _context!.SaveChanges();
-
-        return empresa;        
     }
 
     [IterationCleanup(Target = nameof(InputDataWithEntityFrameworkCore))]
@@ -80,7 +190,7 @@ public class CRMTests
 
     #region Dapper Tests
 
-    private SqlConnection? _connectionDapper;
+    private SqliteConnection? _connectionDapper;
     private Name? _namesDataSetDapper;
     private PhoneNumbers? _phonesDataSetDapper;
     private Address? _addressesDataSetDapper;
@@ -90,7 +200,7 @@ public class CRMTests
     [IterationSetup(Target = nameof(InputDataWithDapper))]
     public void SetupDapper()
     {
-        _connectionDapper = new SqlConnection(Configurations.BaseDapper);
+        _connectionDapper = new SqliteConnection(Configurations.BaseDapper);
         _namesDataSetDapper = new Name("pt_BR");
         _phonesDataSetDapper = new PhoneNumbers("pt_BR");
         _addressesDataSetDapper = new Address("pt_BR");
@@ -107,15 +217,14 @@ public class CRMTests
             CNPJ = _companiesDataSetDapper!.Cnpj(includeFormatSymbols: false),
             Cidade = _addressesDataSetDapper!.City()
         };
-        
+
         _connectionDapper!.Open();
         var transaction = _connectionDapper.BeginTransaction();
 
         empresa.IdEmpresa = _connectionDapper.QuerySingle<int>(
-            "INSERT INTO dbo.Empresas (CNPJ, Nome, Cidade) " +
-            "VALUES (@CNPJ, @Nome, @Cidade);" + Environment.NewLine +
-            "SELECT CAST(SCOPE_IDENTITY() as int)", empresa, transaction);
-
+      "INSERT INTO Empresas (CNPJ, Nome, Cidade) " +
+      "VALUES (@CNPJ, @Nome, @Cidade);" + Environment.NewLine +
+      "SELECT last_insert_rowid()", empresa, transaction);
         empresa.Contatos = new();
         for (int i = 0; i < _numeroContatosPorCompanhiaDapper; i++)
         {
@@ -126,15 +235,15 @@ public class CRMTests
                 Telefone = _phonesDataSetDapper!.PhoneNumber()
             };
             contato.IdContato = _connectionDapper.QuerySingle<int>(
-                "INSERT INTO dbo.Contatos (Nome, Telefone, IdEmpresa) " +
-                "VALUES (@Nome, @Telefone, @IdEmpresa);" + Environment.NewLine +
-                "SELECT CAST(SCOPE_IDENTITY() as int)", contato, transaction);
+     "INSERT INTO Contatos (Nome, Telefone, IdEmpresa) " +
+     "VALUES (@Nome, @Telefone, @IdEmpresa);" + Environment.NewLine +
+     "SELECT last_insert_rowid()", contato, transaction);
             empresa.Contatos.Add(contato);
         }
 
         transaction.Commit();
         _connectionDapper.Close();
-        
+
         return empresa;
     }
 
@@ -145,10 +254,10 @@ public class CRMTests
     }
 
     #endregion
-    
+
     #region Dapper.Contrib Tests
 
-    private SqlConnection? _connectionDapperContrib;
+    private SqliteConnection? _connectionDapperContrib;
     private Name? _namesDataSetDapperContrib;
     private PhoneNumbers? _phonesDataSetDapperContrib;
     private Address? _addressesDataSetDapperContrib;
@@ -158,7 +267,7 @@ public class CRMTests
     [IterationSetup(Target = nameof(InputDataWithDapperContrib))]
     public void SetupDapperContrib()
     {
-        _connectionDapperContrib = new SqlConnection(Configurations.BaseDapperContrib);
+        _connectionDapperContrib = new SqliteConnection(Configurations.BaseDapperContrib);
         _namesDataSetDapperContrib = new Name("pt_BR");
         _phonesDataSetDapperContrib = new PhoneNumbers("pt_BR");
         _addressesDataSetDapperContrib = new Address("pt_BR");
@@ -167,37 +276,38 @@ public class CRMTests
     }
 
     [Benchmark]
-    public Dapper.Empresa InputDataWithDapperContrib()
+    public void InputDataWithDapperContrib()
     {
-        var empresa = new Dapper.Empresa()
-        {
-            Nome = _companiesDataSetDapperContrib!.CompanyName(),
-            CNPJ = _companiesDataSetDapperContrib!.Cnpj(includeFormatSymbols: false),
-            Cidade = _addressesDataSetDapperContrib!.City()
-        };
-
         _connectionDapperContrib!.Open();
         var transaction = _connectionDapperContrib.BeginTransaction();
 
-        _connectionDapperContrib.Insert<Dapper.Empresa>(empresa, transaction);
-
-        empresa.Contatos = new();
-        for (int i = 0; i < _numeroContatosPorCompanhiaDapperContrib; i++)
+        for (int j = 0; j < NumberOfRecords; j++)
         {
-            var contato = new Dapper.Contato()
+            var empresa = new Dapper.Empresa()
             {
-                IdEmpresa = empresa.IdEmpresa,
-                Nome = _namesDataSetDapperContrib!.FullName(),
-                Telefone = _phonesDataSetDapperContrib!.PhoneNumber()
+                Nome = _companiesDataSetDapperContrib!.CompanyName(),
+                CNPJ = _companiesDataSetDapperContrib!.Cnpj(includeFormatSymbols: false),
+                Cidade = _addressesDataSetDapperContrib!.City(),
+                Contatos = new List<Dapper.Contato>()
             };
-            _connectionDapperContrib.Insert<Dapper.Contato>(contato, transaction);
-            empresa.Contatos.Add(contato);
+
+            _connectionDapperContrib.Insert<Dapper.Empresa>(empresa, transaction);
+
+            for (int i = 0; i < _numeroContatosPorCompanhiaDapperContrib; i++)
+            {
+                var contato = new Dapper.Contato()
+                {
+                    IdEmpresa = empresa.IdEmpresa,
+                    Nome = _namesDataSetDapperContrib!.FullName(),
+                    Telefone = _phonesDataSetDapperContrib!.PhoneNumber()
+                };
+                _connectionDapperContrib.Insert<Dapper.Contato>(contato, transaction);
+                empresa.Contatos.Add(contato);
+            }
         }
 
         transaction.Commit();
         _connectionDapperContrib.Close();
-
-        return empresa;
     }
 
     [IterationCleanup(Target = nameof(InputDataWithDapperContrib))]
@@ -210,7 +320,7 @@ public class CRMTests
 
     #region ADO.NET Tests
 
-    private SqlConnection? _connectionADO;
+    private SqliteConnection? _connectionADO;
     private Name? _namesDataSetADO;
     private PhoneNumbers? _phonesDataSetADO;
     private Address? _addressesDataSetADO;
@@ -220,7 +330,7 @@ public class CRMTests
     [IterationSetup(Target = nameof(InputDataWithADO))]
     public void SetupADO()
     {
-        _connectionADO = new SqlConnection(Configurations.BaseADO);
+        _connectionADO = new SqliteConnection(Configurations.BaseADO);
         _namesDataSetADO = new Name("pt_BR");
         _phonesDataSetADO = new PhoneNumbers("pt_BR");
         _addressesDataSetADO = new Address("pt_BR");
@@ -229,54 +339,49 @@ public class CRMTests
     }
 
     [Benchmark]
-    public Dapper.Empresa InputDataWithADO()
+    public void InputDataWithADO()
     {
-        var empresa = new Dapper.Empresa()
-        {
-            Nome = _companiesDataSetADO!.CompanyName(),
-            CNPJ = _companiesDataSetADO!.Cnpj(includeFormatSymbols: false),
-            Cidade = _addressesDataSetADO!.City()
-        };
-
         _connectionADO!.Open();
         var transaction = _connectionADO.BeginTransaction();
 
-        using var commandInsertEmpresa =  new SqlCommand(
-            "INSERT INTO dbo.Empresas (CNPJ, Nome, Cidade) VALUES (@CNPJ, @Nome, @Cidade);" +
-            Environment.NewLine +
-            "SELECT CAST(SCOPE_IDENTITY() as int)",
-            _connectionADO, transaction);
-        commandInsertEmpresa.Parameters.AddWithValue("@CNPJ", empresa.CNPJ);
-        commandInsertEmpresa.Parameters.AddWithValue("@Nome", empresa.Nome);
-        commandInsertEmpresa.Parameters.AddWithValue("@Cidade", empresa.Cidade);
-        empresa.IdEmpresa = (int)commandInsertEmpresa.ExecuteScalar();
-
-        empresa.Contatos = new();
-        for (int i = 0; i < _numeroContatosPorCompanhiaADO; i++)
+        for (int j = 0; j < NumberOfRecords; j++)
         {
-            var contato = new Dapper.Contato()
+            var empresa = new Dapper.Empresa()
             {
-                IdEmpresa = empresa.IdEmpresa,
-                Nome = _namesDataSetADO!.FullName(),
-                Telefone = _phonesDataSetADO!.PhoneNumber()
+                Nome = _companiesDataSetADO!.CompanyName(),
+                CNPJ = _companiesDataSetADO!.Cnpj(includeFormatSymbols: false),
+                Cidade = _addressesDataSetADO!.City()
             };
-            using var commandInsertContato = new SqlCommand(
-                "INSERT INTO dbo.Contatos (Nome, Telefone, IdEmpresa) VALUES (@Nome, @Telefone, @IdEmpresa);" +
-                Environment.NewLine +
-                "SELECT CAST(SCOPE_IDENTITY() as int)",
+
+            using var commandInsertEmpresa = new SqliteCommand(
+            "INSERT INTO Empresas (CNPJ, Nome, Cidade) VALUES (@CNPJ, @Nome, @Cidade); " +
+            "SELECT last_insert_rowid();",
+            _connectionADO, transaction);
+            commandInsertEmpresa.Parameters.AddWithValue("@CNPJ", empresa.CNPJ);
+            commandInsertEmpresa.Parameters.AddWithValue("@Nome", empresa.Nome);
+            commandInsertEmpresa.Parameters.AddWithValue("@Cidade", empresa.Cidade);
+            empresa.IdEmpresa = (int)(long)commandInsertEmpresa.ExecuteScalar();
+
+            for (int i = 0; i < _numeroContatosPorCompanhiaADO; i++)
+            {
+                var contato = new Dapper.Contato()
+                {
+                    IdEmpresa = empresa.IdEmpresa,
+                    Nome = _namesDataSetADO!.FullName(),
+                    Telefone = _phonesDataSetADO!.PhoneNumber()
+                };
+                using var commandInsertContato = new SqliteCommand(
+                "INSERT INTO Contatos (Nome, Telefone, IdEmpresa) VALUES (@Nome, @Telefone, @IdEmpresa); " +
+                "SELECT last_insert_rowid();",
                 _connectionADO, transaction);
-            commandInsertContato.Parameters.AddWithValue("@Nome", contato.Nome);
-            commandInsertContato.Parameters.AddWithValue("@Telefone", contato.Telefone);
-            commandInsertContato.Parameters.AddWithValue("@IdEmpresa", contato.IdEmpresa);
-            contato.IdContato = (int)commandInsertContato.ExecuteScalar();
-
-            empresa.Contatos.Add(contato);
+                commandInsertContato.Parameters.AddWithValue("@Nome", contato.Nome);
+                commandInsertContato.Parameters.AddWithValue("@Telefone", contato.Telefone);
+                commandInsertContato.Parameters.AddWithValue("@IdEmpresa", contato.IdEmpresa);
+                contato.IdContato = (int)(long)commandInsertContato.ExecuteScalar();
+            }
         }
-
         transaction.Commit();
         _connectionADO.Close();
-
-        return empresa;
     }
 
     [IterationCleanup(Target = nameof(InputDataWithADO))]

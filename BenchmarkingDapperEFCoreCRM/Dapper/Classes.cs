@@ -2,7 +2,7 @@ using Dapper.Contrib.Extensions;
 
 namespace BenchmarkingDapperEFCoreCRM.Dapper;
 
-[Table("dbo.Empresas")]
+[Table("Empresas")]
 public class Empresa
 {
     [Key]
@@ -15,7 +15,7 @@ public class Empresa
     public List<Contato>? Contatos { get; set; }
 }
 
-[Table("dbo.Contatos")]
+[Table("Contatos")]
 public class Contato
 {
     [Key]
