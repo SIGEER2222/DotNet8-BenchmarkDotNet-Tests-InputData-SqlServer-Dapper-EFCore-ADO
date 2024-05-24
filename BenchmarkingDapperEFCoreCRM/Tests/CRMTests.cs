@@ -15,7 +15,7 @@ namespace BenchmarkingDapperEFCoreCRM.Tests;
 [SimpleJob(BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 5)]
 public class CRMTests
 {
-    [Params(1_000)]
+    [Params(1_0000)]
     public int NumberOfRecords { get; set; }
 
     private const int NumeroContatosPorCompanhia = 1;
@@ -40,13 +40,11 @@ public class CRMTests
     [IterationSetup(Target = nameof(InputDataWithEntityFrameworkCoreExt))]
     public void SetupEntityFrameworkCoreExt()
     {
-        _context = new CRMContext();
         var options = new DbContextOptionsBuilder<CRMContext>()
             .UseSqlite(Configurations.BaseEFCore)
             .Options;
         factory = new PooledDbContextFactory<CRMContext>(options);
 
-        _context.ChangeTracker.AutoDetectChangesEnabled = false;
         _namesDataSetEF = new Name("pt_BR");
         _phonesDataSetEF = new PhoneNumbers("pt_BR");
         _addressesDataSetEF = new Address("pt_BR");
@@ -57,35 +55,41 @@ public class CRMTests
     [Benchmark]
     public void InputDataWithEntityFrameworkCoreExt()
     {
-        var lstData = new List<EFCore.Empresa>();
-
-        for (int j = 0; j < NumberOfRecords; j++)
+        for (int k = 0; k < NumberOfRecords / 100; k++)
         {
-            var empresa = new EFCore.Empresa()
+            using (var context = factory.CreateDbContext())
             {
-                Nome = _companiesDataSetEF!.CompanyName(),
-                CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
-                Cidade = _addressesDataSetEF!.City(),
-                Contatos = new List<EFCore.Contato>()
-            };
-            for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
-            {
-                empresa.Contatos.Add(new EFCore.Contato()
+                var lstData = new List<EFCore.Empresa>();
+
+                for (int j = 0; j < 100; j++)
                 {
-                    Nome = _namesDataSetEF!.FullName(),
-                    Telefone = _phonesDataSetEF!.PhoneNumber()
-                });
+                    var empresa = new EFCore.Empresa()
+                    {
+                        Nome = _companiesDataSetEF!.CompanyName(),
+                        CNPJ = _companiesDataSetEF!.Cnpj(includeFormatSymbols: false),
+                        Cidade = _addressesDataSetEF!.City(),
+                        Contatos = new List<EFCore.Contato>()
+                    };
+                    for (int i = 0; i < _numeroContatosPorCompanhiaEF; i++)
+                    {
+                        empresa.Contatos.Add(new EFCore.Contato()
+                        {
+                            Nome = _namesDataSetEF!.FullName(),
+                            Telefone = _phonesDataSetEF!.PhoneNumber()
+                        });
+                    }
+                    lstData.Add(empresa);
+                }
+                context.BulkInsert(lstData);
             }
-            lstData.Add(empresa);
+
         }
-        _context.BulkInsert(lstData);
     }
 
     #endregion
 
     #region EFCore Tests
 
-    private CRMContext? _context;
     private Name? _namesDataSetEF;
     private PhoneNumbers? _phonesDataSetEF;
     private Address? _addressesDataSetEF;
@@ -96,7 +100,6 @@ public class CRMTests
     [IterationSetup(Target = nameof(InputDataWithEntityFrameworkCore))]
     public void SetupEntityFrameworkCore()
     {
-        _context = new CRMContext();
         var options = new DbContextOptionsBuilder<CRMContext>()
            .UseSqlite(Configurations.BaseEFCore)
            .Options;
@@ -138,7 +141,7 @@ public class CRMTests
     [IterationCleanup(Target = nameof(InputDataWithEntityFrameworkCore))]
     public void CleanupEntityFrameworkCore()
     {
-        _context = null;
+        factory = null;
     }
 
     #endregion
